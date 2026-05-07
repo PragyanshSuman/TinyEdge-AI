@@ -6,17 +6,21 @@ import { Dashboard } from './components/Dashboard';
 import { HardwareMonitorWidget } from './components/widgets/HardwareMonitorWidget';
 import { NetworkTrafficGraphWidget } from './components/widgets/NetworkTrafficGraphWidget';
 import { ThreatLogTableWidget } from './components/widgets/ThreatLogTableWidget';
+import { ThreatMapWidget } from './components/widgets/ThreatMapWidget';
 
 function App() {
+// ... existing code, just doing the import at top and adding to Dashboard
+
   const [isUnderAttack, setIsUnderAttack] = useState(false);
   const [borderFlash, setBorderFlash] = useState(false);
-  const [logs, setLogs] = useState<any[]>([]);
+  const [liveLogs, setLiveLogs] = useState<any[]>([]);
+  const [simulatedLogs, setSimulatedLogs] = useState<any[]>([]);
   const [isLiveMode, setIsLiveMode] = useState(false);
   const [livePps, setLivePps] = useState(0);
+  const [liveHw, setLiveHw] = useState<{cpu: number, ram: number} | null>(null);
+  const [activeTab, setActiveTab] = useState<'live' | 'simulated'>('live');
 
   useEffect(() => {
-    if (!isLiveMode) return;
-    
     const interval = setInterval(async () => {
       try {
         const response = await fetch('http://localhost:8000/live_traffic');
@@ -26,6 +30,12 @@ function App() {
            console.error(data.error);
            return;
         }
+
+        if (data.hw) {
+          setLiveHw(data.hw);
+        }
+
+        if (!isLiveMode) return; // Only update logs and PPS if sniffing mode is explicitly enabled
 
         setLivePps(data.pps || 0);
 
@@ -42,12 +52,14 @@ function App() {
             inferenceTime: data.inferenceTime,
             isGenuine: data.isGenuine,
             isBlocked: data.isThreat,
-            isZeroDay: data.isThreat
+            isZeroDay: data.isThreat,
+            raw_hex: data.raw_hex,
+            geo: data.geo
           };
 
-          setLogs(prev => [newLog, ...prev].slice(0, 50));
+          setLiveLogs(prev => [newLog, ...prev].slice(0, 50));
 
-          if (data.isThreat) {
+          if (data.isThreat && activeTab === 'live') {
             setIsUnderAttack(true);
             setBorderFlash(true);
             setTimeout(() => setBorderFlash(false), 2000);
@@ -60,7 +72,7 @@ function App() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isLiveMode]);
+  }, [isLiveMode, activeTab]);
 
   // Initialize base logs
   useEffect(() => {
@@ -70,7 +82,7 @@ function App() {
       return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
     };
 
-    setLogs([
+    setSimulatedLogs([
       {
         id: 2,
         timestamp: getPastTime(2),
@@ -136,9 +148,9 @@ function App() {
         isZeroDay: data.isThreat
       };
 
-      setLogs(prev => [newLog, ...prev]);
+      setSimulatedLogs(prev => [newLog, ...prev]);
 
-      if (data.isThreat) {
+      if (data.isThreat && activeTab === 'simulated') {
         setIsUnderAttack(true);
         setBorderFlash(true);
         
@@ -158,21 +170,56 @@ function App() {
       )}
     >
       <Header />
-      <div className="flex justify-end px-6 pt-4 max-w-7xl mx-auto w-full">
-        <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-semibold text-sm bg-slate-900 border border-slate-700 px-4 py-2 rounded hover:bg-slate-800 transition-colors shadow-lg">
-          <input type="checkbox" className="accent-neon-green w-4 h-4 cursor-pointer" checked={isLiveMode} onChange={(e) => setIsLiveMode(e.target.checked)} />
-          Live Sniffing Mode
-        </label>
+      <div className="flex flex-col sm:flex-row justify-between items-center px-6 pt-4 max-w-7xl mx-auto w-full gap-4">
+        <div className="flex bg-slate-900 border border-slate-700 rounded-full p-1 shadow-lg z-10">
+          <button 
+            onClick={() => setActiveTab('live')}
+            className={clsx("px-8 py-2 rounded-full text-sm font-semibold transition-all duration-300", activeTab === 'live' ? "bg-neon-green/20 text-neon-green border border-neon-green/30 shadow-[0_0_15px_rgba(57,255,20,0.2)]" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800")}
+          >
+            Live Shield (IPS)
+          </button>
+          <button 
+            onClick={() => setActiveTab('simulated')}
+            className={clsx("px-8 py-2 rounded-full text-sm font-semibold transition-all duration-300", activeTab === 'simulated' ? "bg-cyber-cyan/20 text-cyber-cyan border border-cyber-cyan/30 shadow-[0_0_15px_rgba(0,255,255,0.2)]" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800")}
+          >
+            Training & Simulation Lab
+          </button>
+        </div>
+
+        {activeTab === 'live' && (
+          <label className="flex items-center gap-2 cursor-pointer text-slate-300 font-semibold text-sm bg-slate-900 border border-slate-700 px-4 py-2 rounded hover:bg-slate-800 transition-colors shadow-lg z-10">
+            <input type="checkbox" className="accent-neon-green w-4 h-4 cursor-pointer" checked={isLiveMode} onChange={(e) => setIsLiveMode(e.target.checked)} />
+            Live Sniffing Mode
+          </label>
+        )}
       </div>
+
       <Dashboard>
-        <HardwareMonitorWidget isUnderAttack={isUnderAttack} />
-        <NetworkTrafficGraphWidget 
-          isUnderAttack={isUnderAttack} 
-          onSimulateAttack={handleSimulateAttack} 
-          isLiveMode={isLiveMode}
-          livePps={livePps}
-        />
-        <ThreatLogTableWidget logs={logs} />
+        {activeTab === 'live' ? (
+          <>
+            <HardwareMonitorWidget isUnderAttack={isUnderAttack} liveHw={liveHw || undefined} />
+            <NetworkTrafficGraphWidget 
+              isUnderAttack={isUnderAttack} 
+              onSimulateAttack={handleSimulateAttack} 
+              isLiveMode={isLiveMode}
+              livePps={livePps}
+              hideSimulateButtons={true}
+            />
+            <ThreatMapWidget logs={liveLogs} />
+            <ThreatLogTableWidget logs={liveLogs} />
+          </>
+        ) : (
+          <>
+            <HardwareMonitorWidget isUnderAttack={isUnderAttack} />
+            <NetworkTrafficGraphWidget 
+              isUnderAttack={isUnderAttack} 
+              onSimulateAttack={handleSimulateAttack} 
+              isLiveMode={false}
+              livePps={0}
+            />
+            <ThreatLogTableWidget logs={simulatedLogs} />
+          </>
+        )}
       </Dashboard>
     </div>
   )

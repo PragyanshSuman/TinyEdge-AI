@@ -57,7 +57,7 @@ function CircularGauge({ value, max, label, subValue, icon, color }: CircularGau
   );
 }
 
-export function HardwareMonitorWidget({ isUnderAttack = false }: { isUnderAttack?: boolean }) {
+export function HardwareMonitorWidget({ isUnderAttack = false, liveHw }: { isUnderAttack?: boolean, liveHw?: {cpu: number, ram: number} }) {
   const [cpu, setCpu] = useState(14);
   const [temp, setTemp] = useState(42);
   const [speed, setSpeed] = useState(3.2);
@@ -65,20 +65,25 @@ export function HardwareMonitorWidget({ isUnderAttack = false }: { isUnderAttack
   // Dynamic Real-Time Metric Engine
   useEffect(() => {
     const interval = setInterval(() => {
-      if (isUnderAttack) {
-        // High threat conditions
-        setCpu(Math.floor(Math.random() * (98 - 85 + 1) + 85)); // 85% to 98%
-        setTemp(prev => (prev < 62 ? prev + Math.random() * 2.5 : 62 + Math.random() * 0.5)); // Rises to ~62C
-        setSpeed(parseFloat((Math.random() * (18.5 - 12.0) + 12.0).toFixed(1))); // 12ms to 18ms
+      if (liveHw) {
+        // Use real hardware metrics from backend
+        setCpu(Math.round(liveHw.cpu));
+        setTemp(prev => (prev > 45 && liveHw.cpu < 50 ? prev - Math.random() : 40 + (liveHw.cpu * 0.3)));
+        setSpeed(parseFloat((Math.random() * (3.8 - 2.8) + 2.8).toFixed(1))); // inference speed is still ms
+      } else if (isUnderAttack) {
+        // High threat conditions (Simulation)
+        setCpu(Math.floor(Math.random() * (98 - 85 + 1) + 85)); 
+        setTemp(prev => (prev < 62 ? prev + Math.random() * 2.5 : 62 + Math.random() * 0.5)); 
+        setSpeed(parseFloat((Math.random() * (18.5 - 12.0) + 12.0).toFixed(1))); 
       } else {
-        // Idle heartbeat conditions
-        setCpu(Math.floor(Math.random() * (18 - 10 + 1) + 10)); // 10% to 18%
-        setTemp(prev => (prev > 42 ? prev - Math.random() * 2 : 42 + Math.random() * 0.4)); // Settles at 42C
-        setSpeed(parseFloat((Math.random() * (3.8 - 2.8) + 2.8).toFixed(1))); // 2.8ms to 3.8ms
+        // Idle heartbeat conditions (Simulation)
+        setCpu(Math.floor(Math.random() * (18 - 10 + 1) + 10)); 
+        setTemp(prev => (prev > 42 ? prev - Math.random() * 2 : 42 + Math.random() * 0.4)); 
+        setSpeed(parseFloat((Math.random() * (3.8 - 2.8) + 2.8).toFixed(1))); 
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [isUnderAttack]);
+  }, [isUnderAttack, liveHw]);
 
   return (
     <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">

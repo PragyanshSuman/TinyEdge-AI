@@ -15,6 +15,7 @@ interface NetworkTrafficProps {
   onSimulateAttack: (type: string) => void;
   isLiveMode?: boolean;
   livePps?: number;
+  hideSimulateButtons?: boolean;
 }
 
 const generateNormalData = (count: number) => {
@@ -24,7 +25,7 @@ const generateNormalData = (count: number) => {
   }));
 };
 
-export function NetworkTrafficGraphWidget({ isUnderAttack, onSimulateAttack, isLiveMode, livePps }: NetworkTrafficProps) {
+export function NetworkTrafficGraphWidget({ isUnderAttack, onSimulateAttack, isLiveMode, livePps, hideSimulateButtons }: NetworkTrafficProps) {
   const [data, setData] = useState(generateNormalData(20));
   const [currentAttack, setCurrentAttack] = useState<string | null>(null);
 
@@ -88,33 +89,37 @@ export function NetworkTrafficGraphWidget({ isUnderAttack, onSimulateAttack, isL
               ● LIVE SNIFFING
             </span>
           )}
-          <button
-            onClick={() => handleAttackClick('ddos')}
-            disabled={isUnderAttack || isLiveMode}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950 text-red-300 border border-red-900 rounded hover:bg-red-900 transition-colors disabled:opacity-50 text-xs font-semibold"
-            title="Sends 5000+ packets/sec"
-          >
-            <ShieldX className="w-3.5 h-3.5" />
-            Smash Doorbell (DDoS)
-          </button>
-          <button
-            onClick={() => handleAttackClick('adversarial')}
-            disabled={isUnderAttack || isLiveMode}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-950 text-purple-300 border border-purple-900 rounded hover:bg-purple-900 transition-colors disabled:opacity-50 text-xs font-semibold"
-            title="Sends padded malicious data"
-          >
-            <Ghost className="w-3.5 h-3.5" />
-            Optical Illusion (Adversarial)
-          </button>
-          <button
-            onClick={() => handleAttackClick('rounding_error')}
-            disabled={isUnderAttack || isLiveMode}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-950 text-orange-300 border border-orange-900 rounded hover:bg-orange-900 transition-colors disabled:opacity-50 text-xs font-semibold"
-            title="Targets the 8-bit INT8 limits"
-          >
-            <Calculator className="w-3.5 h-3.5" />
-            Rounding Error (8-Bit Blind Spot)
-          </button>
+          {!hideSimulateButtons && (
+            <>
+              <button
+                onClick={() => handleAttackClick('ddos')}
+                disabled={isUnderAttack || isLiveMode}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950 text-red-300 border border-red-900 rounded hover:bg-red-900 transition-colors disabled:opacity-50 text-xs font-semibold"
+                title="Sends 5000+ packets/sec"
+              >
+                <ShieldX className="w-3.5 h-3.5" />
+                Smash Doorbell (DDoS)
+              </button>
+              <button
+                onClick={() => handleAttackClick('adversarial')}
+                disabled={isUnderAttack || isLiveMode}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-950 text-purple-300 border border-purple-900 rounded hover:bg-purple-900 transition-colors disabled:opacity-50 text-xs font-semibold"
+                title="Sends padded malicious data"
+              >
+                <Ghost className="w-3.5 h-3.5" />
+                Optical Illusion (Adversarial)
+              </button>
+              <button
+                onClick={() => handleAttackClick('rounding_error')}
+                disabled={isUnderAttack || isLiveMode}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-950 text-orange-300 border border-orange-900 rounded hover:bg-orange-900 transition-colors disabled:opacity-50 text-xs font-semibold"
+                title="Targets the 8-bit INT8 limits"
+              >
+                <Calculator className="w-3.5 h-3.5" />
+                Rounding Error (8-Bit Blind Spot)
+              </button>
+            </>
+          )}
         </div>
       </div>
 

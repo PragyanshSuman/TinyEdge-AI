@@ -10,6 +10,9 @@ import torch.nn.functional as F
 import numpy as np
 import threading
 import logging
+import subprocess
+import requests
+import psutil
 
 # Setup basic logging to see Scapy warnings instead of breaking
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
@@ -49,14 +52,57 @@ live_tcp_count = 0
 live_udp_count = 0
 live_icmp_count = 0
 live_arrival_times = []
+last_source_ip = "192.168.1.1" # default
+last_raw_hex = ""
 sniff_lock = threading.Lock()
 last_sniff_time = time.time()
+
+# Caches
+blocked_ips_cache = set()
+geoip_cache = {}
 
 # Latest live features (thread-safe access)
 current_live_features = None
 
+def get_geoip(ip):
+    if ip.startswith("192.168.") or ip.startswith("10.") or ip == "127.0.0.1":
+        return {"lat": 37.7749, "lon": -122.4194, "country": "Local Network"} # Default to SF
+    
+    if ip in geoip_cache:
+        return geoip_cache[ip]
+        
+    try:
+        resp = requests.get(f"http://ip-api.com/json/{ip}", timeout=1.0).json()
+        if resp.get("status") == "success":
+            data = {"lat": resp["lat"], "lon": resp["lon"], "country": resp["country"]}
+            geoip_cache[ip] = data
+            return data
+    except:
+        pass
+    return {"lat": 0, "lon": 0, "country": "Unknown"}
+
+def block_ip_firewall(ip):
+    if ip in ["127.0.0.1", "0.0.0.0", "255.255.255.255"]:
+        return "System IP - Bypassed"
+        
+    if ip in blocked_ips_cache:
+        return "Already Blocked in OS"
+        
+    try:
+        rule_name = f"TinyEdge_Block_{ip}"
+        cmd = f'netsh advfirewall firewall add rule name="{rule_name}" dir=in action=block remoteip={ip}'
+        subprocess.run(cmd, shell=True, check=True, capture_output=True)
+        blocked_ips_cache.add(ip)
+        print(f"FIREWALL: Successfully blocked malicious IP {ip}")
+        return "OS Firewall Active Block"
+    except Exception as e:
+        print(f"FIREWALL: Failed to block {ip} (Admin rights needed): {e}")
+        return "Simulated Block (Needs Admin)"
+
 def packet_callback(packet):
     global live_packet_count, live_packet_sizes, live_tcp_count, live_udp_count, live_icmp_count, live_arrival_times
+    global last_source_ip, last_raw_hex
+
     
     with sniff_lock:
         live_packet_count += 1
@@ -64,6 +110,11 @@ def packet_callback(packet):
         live_arrival_times.append(time.time())
         
         if IP in packet:
+            last_source_ip = packet[IP].src
+            # Capture the first 64 bytes as hex dump for deep inspection
+            raw_bytes = bytes(packet)[:64]
+            last_raw_hex = ' '.join(f'{b:02X}' for b in raw_bytes)
+            
             if TCP in packet:
                 live_tcp_count += 1
             elif UDP in packet:
@@ -89,6 +140,23 @@ def start_sniffer():
 if SCAPY_AVAILABLE:
     sniffer_thread = threading.Thread(target=start_sniffer, daemon=True)
     sniffer_thread.start()
+
+# Reliable global hardware state
+global_hw_stats = {"cpu": 0, "ram": 0}
+
+def hardware_monitor_thread():
+    global global_hw_stats
+    psutil.cpu_percent()
+    while True:
+        try:
+            global_hw_stats["cpu"] = psutil.cpu_percent(interval=1.0)
+            global_hw_stats["ram"] = psutil.virtual_memory().percent
+        except:
+            pass
+            time.sleep(1.0)
+
+hw_thread = threading.Thread(target=hardware_monitor_thread, daemon=True)
+hw_thread.start()
 
 async def feature_calculator():
     global live_packet_count, live_packet_sizes, live_tcp_count, live_udp_count, live_icmp_count, live_arrival_times
@@ -137,6 +205,10 @@ async def feature_calculator():
                 features += 4.0 # DDoS territory
             elif pps > 500:
                 features += 2.0 # Suspicious / Port Scan
+            elif icmp_c > 0 and avg_len > 800:
+                features += 3.0 # Ping of Death (Large ICMP packets)
+            elif tcp_c > 50 and pps > 50:
+                features += 2.0 # TCP SYN Flood
             else:
                 features -= 2.0 # Normal
                 
@@ -144,11 +216,17 @@ async def feature_calculator():
             features[0, 1] += (tcp_c / (count + 1))
             features[0, 2] += (udp_c / (count + 1))
             
+        # Get geo info
+        geo = get_geoip(last_source_ip)
+            
         current_live_features = {
             "tensor": features,
             "pps": pps,
             "protocol": "TCP" if tcp_c >= max(udp_c, icmp_c) else ("UDP" if udp_c > icmp_c else "ICMP"),
-            "raw_count": count
+            "raw_count": count,
+            "source_ip": last_source_ip,
+            "raw_hex": last_raw_hex,
+            "geo": geo
         }
 
 @app.on_event("startup")
@@ -278,28 +356,45 @@ async def get_live_traffic():
             "isThreat": False,
             "inferenceTime": "0ms",
             "isGenuine": True,
-            "pps": 0
+            "pps": 0,
+            "raw_hex": "",
+            "geo": {"lat": 0, "lon": 0, "country": "N/A"},
+            "hw": {
+                "cpu": global_hw_stats["cpu"],
+                "ram": global_hw_stats["ram"]
+            }
         }
         
     feats = current_live_features["tensor"]
     pps = current_live_features["pps"]
     protocol = current_live_features["protocol"]
     raw_count = current_live_features["raw_count"]
-    source_ip = "Live Interface"
+    source_ip = current_live_features["source_ip"]
+    raw_hex = current_live_features["raw_hex"]
+    geo = current_live_features["geo"]
+    
+    hw_stats = {
+        "cpu": global_hw_stats["cpu"],
+        "ram": global_hw_stats["ram"]
+    }
     
     # 1. Hardware-level Firewall (Pre-AI)
     if pps > 3000:
+        firewall_status = block_ip_firewall(source_ip)
         return {
             "timestamp": timestamp,
             "sourceIp": source_ip,
             "protocol": protocol,
             "prediction": "Volumetric DDoS",
             "confidence": "N/A (Rate Limited)",
-            "action": "Dropped before AI (>3000 p/s)",
+            "action": firewall_status,
             "isThreat": True,
             "inferenceTime": f"{(asyncio.get_event_loop().time() - start_time)*1000:.2f}ms",
             "isGenuine": True,
-            "pps": int(pps)
+            "pps": int(pps),
+            "raw_hex": raw_hex,
+            "geo": geo,
+            "hw": hw_stats
         }
         
     if MODEL_AVAILABLE:
@@ -324,6 +419,9 @@ async def get_live_traffic():
                 action = f"Blocked via INT8 Model (Class {idx})"
                 is_threat = True
                 
+            if is_threat:
+                action = block_ip_firewall(source_ip)
+                
             return {
                 "timestamp": timestamp,
                 "sourceIp": source_ip,
@@ -335,7 +433,10 @@ async def get_live_traffic():
                 "inferenceTime": f"{(asyncio.get_event_loop().time() - start_time)*1000:.2f}ms",
                 "isGenuine": True,
                 "pps": int(pps),
-                "raw_count": raw_count
+                "raw_count": raw_count,
+                "raw_hex": raw_hex,
+                "geo": geo,
+                "hw": hw_stats
             }
             
     # Fallback
@@ -348,7 +449,10 @@ async def get_live_traffic():
         "action": "Allowed",
         "isThreat": False,
         "isGenuine": False,
-        "pps": int(pps)
+        "pps": int(pps),
+        "raw_hex": raw_hex,
+        "geo": geo,
+        "hw": hw_stats
     }
 
 if __name__ == "__main__":
