@@ -1,6 +1,6 @@
 # TinyEdge-AI: Tiny AI for Intrusion Detection on Edge Devices
 
-**Lead Developer:** Roshan Kumar Mohanta (RA2311026010713)
+
 
 TinyEdge-AI is a lightweight, edge-optimized Network Intrusion Detection System (NIDS). The system leverages Quantization-Aware Training (QAT) to compress a PyTorch Multilayer Perceptron (MLP) into an INT8 format, making it suitable for deployment on resource-constrained edge routers. It features a React-based interactive dashboard for live monitoring and simulated threat testing.
 
